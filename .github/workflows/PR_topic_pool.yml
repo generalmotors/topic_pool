@@ -1,0 +1,12 @@
+name: PR_topic_pool
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  call:
+    uses: ORG/PR_topic_pool/.github/workflows/topic_pool.yml@main
+    secrets: inherit
+
