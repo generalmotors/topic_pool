@@ -1,0 +1,10 @@
+name: topic_cmd
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  call:
+    uses: ORG/PR_topic_pool/.github/workflows/topic_cmd.yml@main
+    secrets: inherit
+

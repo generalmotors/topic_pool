@@ -1,0 +1,77 @@
+# Use GitHub workflow/action/repo to implement gerrit-style topic function
+#
+# Copyright 2024 General Motors LLC
+#
+# This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 3 of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty # of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License along with this program; if not, see <https://www.gnu.org/licenses>.
+#
+# Changelog:
+# 20240724: Design by dw
+name: topic_clean
+on:
+  workflow_dispatch:
+    inputs:
+      KEEP_DAYS:
+        description: 'clean topic branch more than KEEP_DAYS, default is 90 days'
+        required: true
+        default: '90'
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  topic_clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      WORKSPACE: ${{ github.workspace }}
+      JOB_CLONE_TOKEN: x-acess-token:${{ secrets.GITHUB_TOKEN }}@
+      KEEP_DAYS: ${{ inputs.KEEP_DAYS }}
+
+    concurrency:
+      group: topic_clean
+      cancel-in-progress: false
+
+    steps:
+    - name: set build description
+      run: |
+        env TZ=America/Detroit date >>${GITHUB_STEP_SUMMARY}
+        echo "[${GITHUB_WORKFLOW}#${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) in ${RUNNER_NAME}" >>${GITHUB_STEP_SUMMARY}
+
+    - name: setup git config
+      shell: bash
+      run: |
+        git config --global user.name "Ding Wei"
+        git config --global user.email "noreply@github.com"
+        git config --global core.autocrlf false
+
+    - name: clean topic branch steps
+      shell: bash
+      run: |
+        export GH_ORG=$(dirname ${{ github.repository }})
+        export NOW=$(date +%s)
+        [[ -z ${KEEP_DAYS} ]] && export KEEP_DAYS=90
+
+        git clone -q https://${JOB_CLONE_TOKEN}github.com/${{ github.repository }} ${WORKSPACE}/topic_pool.tmp
+        cd ${WORKSPACE}/topic_pool.tmp
+        for BRANCH in $(git branch -r | grep -v HEAD | egrep -v "/main$" | egrep "${GH_ORG}/")
+        do
+            echo -e $(git show --format="%ci %cr" ${BRANCH} | head -n1) ${BRANCH}
+        done | sort >${WORKSPACE}/branch.list
+
+        rm -f ${WORKSPACE}/delete_barnch.sh || true
+        cat ${WORKSPACE}/branch.list | while read BRANCH_INFO
+        do
+            export LAST_TIME=$(echo ${BRANCH_INFO} | awk -F' ' {'print $1'})
+            export BRANCH_NAME=$(echo ${BRANCH_INFO} | awk -F' ago ' {'print $2'})
+            export TIME_GAP=$(expr $(expr ${NOW} - $(date -d "${LAST_TIME}" +%s)) / 60 / 60 / 24)
+            if [[ ! -z ${KEEP_DAYS} && ${TIME_GAP} -gt ${KEEP_DAYS} ]] ; then
+                echo echo "========== Delete branch ${BRANCH_NAME} which last update in ${LAST_TIME}" >>${WORKSPACE}/delete_barnch.sh
+                echo "git push origin :refs/heads/$(echo ${BRANCH_NAME} | sed 's/origin\///g')" >>${WORKSPACE}/delete_barnch.sh
+            fi
+        done
+        [[ -e ${WORKSPACE}/delete_barnch.sh ]] && bash ${WORKSPACE}/delete_barnch.sh || true
+        exit 0
